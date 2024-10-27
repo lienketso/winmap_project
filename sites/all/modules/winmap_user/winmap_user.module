@@ -1,0 +1,133 @@
+<?php
+
+
+function winmap_user_menu() {
+  $items = array();
+
+  $items['user/%user/change-password'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => 'Đổi mật khẩu',
+    'page callback' => array('winmap_user_user_change_password_page'),
+    'page arguments' => array(1),
+    'access callback' => 'winmap_user_user_accep_pprofile',
+    'file' => 'winmap_user.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function winmap_user_menu_alter(&$items) {
+  $items['user']['page callback'] = '_winmap_user_user_page';
+}
+
+
+function winmap_theme_callback () {
+  return 'winmap_theme';
+}
+
+function _winmap_user_user_page() {
+  global $user;
+  if (!empty($user->uid)) {
+    drupal_goto('user/' . $user->uid);
+  }
+  else {
+    return drupal_get_form('user_login');
+  }
+}
+
+
+function winmap_user_user_change_password_form($form, &$form_state, $account) {
+  $form = array();
+  if (!isset($form_state['user'])) {
+    $form_state['user'] = $account;
+  }
+
+  if (empty($_SESSION['pass_reset_' . $account->uid])) {
+    $form['curent-pass'] = array(
+      '#type' => 'password',
+      '#title' => 'Mặt khẩu cũ',
+      '#element_validate' => array('winmap_user_change_password_form_validate_curent_password'),
+      '#required' => TRUE,
+    );
+  }
+
+  $form['news-pass'] = array(
+    '#type' => 'password_confirm',
+    '#required' => TRUE,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Lưu',
+    '#prefix' => '<div id="user-change-password-actions">',
+    '#suffix' => '</div>',
+  );
+
+  return $form;
+}
+
+function winmap_user_change_password_form_validate_curent_password($element, &$form_state) {
+  global $user;
+  $account = $form_state['user'];
+  if ($account->uid == $user->uid) {
+    require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+    $current_pass_failed = strlen(trim($form_state['values']['curent-pass'])) == 0 || !user_check_password($form_state['values']['curent-pass'], $account);
+    if ($current_pass_failed) {
+      form_error($element, 'Mạt khẩu không đúng');
+    }
+  }
+  else {
+    form_error($element, 'Bạn không có quyền thay đổi mật khẩu');
+  }
+}
+
+function winmap_user_user_change_password_form_submit($form, $form_state) {
+  global $user;
+  $account = $form_state['user'];
+  if (strlen($form_state['values']['news-pass']) < 6) {
+    form_error($form['news-pass'], 'Mật khẩu phải  lớn hơn hoặc bàng 6 ký tự');
+  }
+  else {
+    if (!empty($user->uid) && ($user->uid == $account->uid)) {
+      require_once DRUPAL_ROOT . '/includes/bootstrap.inc';
+      drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+      require_once DRUPAL_ROOT . '/includes/password.inc';
+
+      $newhash = user_hash_password($form_state['values']['news-pass']);
+      try {
+        $updatepass = db_update('users')
+          ->fields(array('pass' => $newhash))
+          ->condition('uid', $account->uid, '=')
+          ->execute();
+        if ($updatepass) {
+          cache_clear_all();
+          if (!empty($_SESSION['pass_reset_' . $form_state['user']->uid])) {
+            unset($_SESSION['pass_reset_' . $form_state['user']->uid]);
+          }
+          drupal_set_message('Thay đổi mật khẩu thành công');
+          drupal_goto('user/' . $account->uid.'/edit');
+        }
+
+      } catch (Exception $e) {
+        drupal_set_message('Hệ thống đang bận vui lòng quai lại sau ít phút', 'error');
+      }
+    }
+
+  }
+}
+
+function winmap_user_form_user_login_alter(&$form, &$form_state, $form_id) {
+  drupal_set_title('Đăng nhập');
+  $form['name']['#title'] ='';
+  $form['name']['#attributes']['placeholder'] = 'Tên đăng nhập';
+  $form['pass']['#title'] ='';
+  $form['pass']['#attributes']['placeholder'] = 'Mật khẩu';
+  $form['actions']['submit']['#suffix'] =   l(t('Đăng ký thành viên'), 'user/register');
+  $form['#theme'] = array('winmap_user_form_user_login_from');
+}
+
+
+
